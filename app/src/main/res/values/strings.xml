@@ -1,5 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Duo Open</string>
-    <string name="wallpaper_name">Duo Open</string>
-    <string name="wallpaper_description">Frosted-glass fold that settles into focus as you unfold.</string>
+    <string name="app_name">Duo Glass</string>
+    <string name="accessibility_name">Duo Glass whole-screen fold</string>
+    <string name="accessibility_description">Plays a liquid-glass fold over the whole screen while you open and close your foldable, following the real hinge angle. During a fold it may take a screenshot of the display, kept in memory only while the effect plays. Nothing is stored or sent anywhere; the app has no internet permission.</string>
+    <string name="wallpaper_name">Duo Glass</string>
+    <string name="wallpaper_description">Your wallpaper folds like a pane of liquid glass as you open the phone.</string>
 </resources>

@@ -1,0 +1,28 @@
+name: Build
+
+on:
+  push:
+    branches: [main, "overhaul/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      # AGP downloads the compile SDK (Android 17, API 37) itself once licenses are accepted.
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test
+        run: ./gradlew testDebugUnitTest --console=plain
+      - name: Build release APK
+        run: ./gradlew assembleRelease --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DuoGlass-apk
+          path: app/build/outputs/apk/release/app-release.apk

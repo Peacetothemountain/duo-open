@@ -1,0 +1,119 @@
+// Duo Glass — the fold as a pane of liquid glass.
+//
+// Physical model (after the Duo-Fold shader by Atomicx7, via Duo Open):
+// - The UI lives on a fixed plane where the screen would be if flat.
+// - The eye sits on that plane's normal through the hinge, eyeDistancePx back.
+// - The moving half is a glass pane rotated `tiltDegrees` about the hinge,
+//   its outer edge rising toward the viewer.
+// - Per pixel: ray eye -> glass, continued to the UI plane; blur radius grows
+//   with the glass-to-plane gap; frosted glass absorbs in proportion.
+//
+// Liquid Glass layer (iOS 27 style):
+// - Lensing: the pane's outer rim bends light inward like a thick edge.
+// - Static edge light: a crisp highlight on the outer rim and a soft one on
+//   the crease (no motion-driven shimmer), scaled by tilt.
+// - Vibrancy: what shows through the frost is gently saturated.
+//
+// Minimal AGSL on purpose (no break/continue, fixed loop bound).
+
+uniform shader content;
+uniform float2 resolution;
+uniform float tiltDegrees;
+uniform float eyeDistancePx;
+uniform float hingePos;
+uniform float eyeX;
+uniform float axisSwap;     // 0: hinge is a vertical line (splits x); 1: horizontal
+uniform float paneSide;     // -1 left/top moves, +1 right/bottom, 0 both
+uniform float blurSpread;   // blur px per px of gap
+uniform float darkening;    // light lost per px of blur
+uniform float sheen;        // 0..1 edge light
+uniform float refraction;   // 0..1 rim lensing
+uniform float pxPerMm;
+
+const float GOLDEN_ANGLE = 2.39996322972865332;
+const float TWO_PI = 6.28318530717958648;
+const float MAX_TILT = 45.0;
+
+half4 main(float2 fragCoord) {
+    if (resolution.x <= 1.0 || resolution.y <= 1.0) {
+        return content.eval(fragCoord);
+    }
+    float tiltDeg = clamp(tiltDegrees, 0.0, 60.0);
+    float tilt = radians(tiltDeg);
+    if (tilt < 1e-4) {
+        return content.eval(fragCoord);
+    }
+    float tiltN = clamp(tiltDeg / MAX_TILT, 0.0, 1.0);
+
+    float2 p = mix(fragCoord, fragCoord.yx, axisSwap);
+    float2 size = mix(resolution, resolution.yx, axisSwap);
+
+    float side = mix(-1.0, 1.0, step(hingePos, p.x));
+    if (paneSide * side < -0.5) {
+        return content.eval(fragCoord);
+    }
+    float d = abs(p.x - hingePos);
+    float span = max(mix(hingePos, size.x - hingePos, step(0.0, side)), 1.0);
+    float u = clamp(d / span, 0.0, 1.0);          // 0 at crease, 1 at outer rim
+
+    float2 glass = float2(hingePos + side * d * cos(tilt), p.y);
+    float gap = d * sin(tilt);
+    float2 eye = float2(eyeX, size.y * 0.5);
+
+    float depth = eyeDistancePx - gap;
+    if (depth <= 1e-3) {
+        return half4(0.0, 0.0, 0.0, 1.0);
+    }
+    float2 hitS = eye + (glass - eye) * (eyeDistancePx / depth);
+
+    // Rim lensing: within ~7 mm of the outer edge the thick glass bends the
+    // view back toward the crease, strongest right at the rim.
+    float rimW = 7.0 * pxPerMm;
+    float rim = 1.0 - smoothstep(0.0, rimW, span - d);
+    hitS.x -= side * refraction * tiltN * rim * rim * rimW * 0.9;
+
+    float radius = blurSpread * gap;
+
+    if (hitS.x < -radius || hitS.y < -radius ||
+        hitS.x > size.x + radius || hitS.y > size.y + radius) {
+        return half4(0.0, 0.0, 0.0, 1.0);
+    }
+    float2 hit = mix(hitS, hitS.yx, axisSwap);
+
+    float atten = max(1.0 - darkening * radius, 0.0);
+
+    half3 col;
+    if (radius < 0.5) {
+        col = content.eval(hit).rgb;
+    } else {
+        float tapsF = clamp(radius * 2.0, 6.0, 28.0);
+        float rot = fract(sin(dot(fragCoord, float2(12.9898, 78.233))) * 43758.5453) * TWO_PI;
+        half3 sum = half3(0.0);
+        float wsum = 0.0;
+        for (int i = 0; i < 28; i++) {
+            float fi = float(i);
+            float w = 1.0 - step(tapsF, fi);
+            float r = radius * sqrt((fi + 0.5) / tapsF);
+            float a = fi * GOLDEN_ANGLE + rot;
+            sum += content.eval(hit + r * float2(cos(a), sin(a))).rgb * half(w);
+            wsum += w;
+        }
+        col = sum / half(max(wsum, 1.0));
+    }
+
+    // Vibrancy: frosted glass keeps colour alive instead of going grey.
+    float frostN = clamp(radius / (12.0 * pxPerMm), 0.0, 1.0);
+    half luma = dot(col, half3(0.2126, 0.7152, 0.0722));
+    col = mix(half3(luma), col, half(1.0 + 0.28 * frostN));
+    col *= half(atten);
+
+    // Static edge light (iOS 27: crisp border, no tilt shimmer).
+    float edgeW = 1.2 * pxPerMm;
+    float rimLine = exp(-(span - d) / max(edgeW, 1.0));
+    float crease = exp(-d / (6.0 * pxPerMm)) * 0.35;
+    float fresnel = u * u * u * 0.10;
+    float light = sheen * tiltN * (rimLine * 0.55 + crease + fresnel);
+    col += half3(light);
+
+    return half4(clamp(col, half3(0.0), half3(1.0)), 1.0);
+}

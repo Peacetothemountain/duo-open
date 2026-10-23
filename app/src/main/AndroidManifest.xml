@@ -3,30 +3,46 @@
 
     <uses-feature
         android:name="android.software.live_wallpaper"
-        android:required="true" />
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.sensor.hinge_angle"
+        android:required="false" />
 
     <application
-        android:name=".DuoApplication"
+        android:name=".DuoGlassApp"
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.DuoOpen">
+        android:theme="@style/Theme.DuoGlass">
 
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density"
-            android:exported="true">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboardHidden"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- The accessibility service lives in src/full/AndroidManifest.xml. -->
+        <service
+            android:name=".overlay.FoldService"
+            android:exported="true"
+            android:label="@string/accessibility_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service" />
+        </service>
 
         <service
-            android:name=".wallpaper.DuoWallpaperService"
+            android:name=".wallpaper.GlassWallpaperService"
             android:exported="true"
             android:label="@string/wallpaper_name"
             android:permission="android.permission.BIND_WALLPAPER">
@@ -35,7 +51,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.service.wallpaper"
-                android:resource="@xml/duo_wallpaper" />
+                android:resource="@xml/wallpaper" />
         </service>
     </application>
 </manifest>

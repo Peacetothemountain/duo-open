@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -14,33 +13,16 @@ val keystoreProps = Properties().apply {
 }
 
 android {
-    namespace = "com.duoopen"
-    compileSdk = 35
+    namespace = "com.duoglass"
+    compileSdk { version = release(37) { minorApiLevel = 0 } }
 
     defaultConfig {
-        applicationId = "com.duoopen"
-        // AGSL RuntimeShader needs API 33 (OnePlus Open ships Android 13+).
-        minSdk = 33
-        targetSdk = 35
-        versionCode = 4
-        versionName = "1.3.0"
-    }
-
-    // full: system-wide fold via the accessibility service (+ wallpaper).
-    // lite: live wallpaper only — no accessibility service in the manifest,
-    // so Play Protect / restricted settings never get involved. Separate app
-    // id so both can be installed side by side.
-    flavorDimensions += "edition"
-    productFlavors {
-        create("full") {
-            dimension = "edition"
-            isDefault = true
-        }
-        create("lite") {
-            dimension = "edition"
-            applicationIdSuffix = ".lite"
-            versionNameSuffix = "-lite"
-        }
+        // Separate id from upstream Duo Open (com.duoopen) so both can be installed.
+        applicationId = "com.duoglass"
+        minSdk = 35
+        targetSdk = 37
+        versionCode = 1
+        versionName = "2.0.0"
     }
 
     signingConfigs {
@@ -56,7 +38,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
@@ -70,28 +54,27 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
-    jvmToolchain(17)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2025.06.01"))
-    implementation("androidx.core:core-ktx:1.16.0")
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation(platform("androidx.compose:compose-bom:2026.08.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-core")
-    implementation("androidx.window:window:1.2.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-
-    // Full edition only: optional Shizuku mode (ADB-level helpers — unlimited
-    // display capture with our overlay excluded, and Samsung's continuous
-    // hinge angle). Technique credit: joeconsorti/duo-fold-live (MIT).
-    "fullImplementation"("dev.rikka.shizuku:api:13.1.5")
-    "fullImplementation"("dev.rikka.shizuku:provider:13.1.5")
-    "fullImplementation"("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.window:window:1.5.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    testImplementation("junit:junit:4.13.2")
 }
