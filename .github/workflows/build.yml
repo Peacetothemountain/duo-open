@@ -15,8 +15,12 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      # AGP downloads the compile SDK (Android 17, API 37) itself once licenses are accepted.
+      # Accepts the SDK licenses; AGP then downloads the compile SDK (Android 17,
+      # API 37) itself. The action's default package list still names the
+      # long-removed "tools" package, so name one explicitly.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
       - name: Test
         run: ./gradlew testDebugUnitTest --console=plain
