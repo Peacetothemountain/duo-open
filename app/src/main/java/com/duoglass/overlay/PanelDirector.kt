@@ -99,7 +99,7 @@ class PanelDirector(
         override fun run() {
             if (phase != Phase.SHOWING || drive != Drive.TRACK || demo) return
             val quiet = SystemClock.uptimeMillis() - lastMoveMs
-            val limit = if (!inner && afterSwapPhase && !concurrentCover()) QUIET_AFTER_CLOSE_MS else STALL_MS
+            val limit = if (!inner && afterSwapPhase && !concurrentCover()) QUIET_AFTER_CLOSE_MS else stallMs()
             if (quiet >= limit) {
                 stallAngle = HingeSensor.angle
                 FoldTrace.event("d$id: hinge quiet ${quiet}ms → ease out")
@@ -186,7 +186,8 @@ class PanelDirector(
                 armed = false
                 start(afterSwap = false)
             }
-            stallAngle.isFinite() && abs(angle - stallAngle) >= RESUME_DEG -> {
+            stallAngle.isFinite() && tilt >= REST_LEAVE_TILT &&
+                abs(angle - stallAngle) >= maxOf(RESUME_DEG, 2f * HingeSensor.stepDegrees) -> {
                 stallAngle = Float.NaN
                 start(afterSwap = false)
             }
@@ -355,7 +356,7 @@ class PanelDirector(
             }
             else -> {
                 drive = Drive.TRACK
-                f.response = SpringFollower.TRACK_RESPONSE
+                f.response = SpringFollower.trackResponse(HingeSensor.stepDegrees)
                 handler.postDelayed(watchdog, WATCHDOG_MS)
             }
         }
@@ -454,6 +455,14 @@ class PanelDirector(
             sw.recycle()
         }
     }
+
+    /**
+     * How long the hinge may stay silent mid-fold before the glass eases out.
+     * Scales with the sensor's step: a 5° sensor (Pixel Fold) can go ~0.8 s
+     * between readings during a slow open.
+     */
+    private fun stallMs(): Long =
+        (STALL_MS + (HingeSensor.stepDegrees - 1f).coerceAtLeast(0f) * 190f).toLong().coerceAtMost(1_600L)
 
     private fun fmt(v: Float) = if (v.isFinite()) "%.1f".format(v) else "?"
 
