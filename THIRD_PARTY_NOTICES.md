@@ -1,32 +1,14 @@
 # Third-party notices
 
-Duo Open is MIT-licensed (see LICENSE). It builds on, and is grateful to:
+Duo Glass is MIT-licensed (see LICENSE). It builds on, and is grateful to:
 
 | Work | Where | License / credit |
 |---|---|---|
-| Duo-animation — frosted-glass fold shader (Metal, ported to AGSL here) | https://github.com/Atomicx7/Duo-animation | No license file upstream; used with attribution. |
-| Duo Fold Live — Samsung fold-wallpaper angle source, shell-side display capture with layer exclusion, capture-API resolution | https://github.com/joeconsorti/duo-fold-live | MIT; Copyright (c) 2026 Duo Fold Live contributors. Techniques re-implemented in `app/src/full/java/com/duoopen/shell/`. |
-| Shizuku API | https://github.com/RikkaApps/Shizuku-API | Apache-2.0 |
-| AndroidHiddenApiBypass | https://github.com/LSPosed/AndroidHiddenApiBypass | Apache-2.0 |
+| Duo Open — the app this is rebuilt from (fold model, device notes, overlay approach) | https://github.com/marcoazeem/duo-open | MIT; Copyright (c) 2026 marcoazeem (see LICENSE) |
+| Duo-animation — frosted-glass fold shader (Metal, ported to AGSL by Duo Open, extended here) | https://github.com/Atomicx7/Duo-animation | No license file upstream; used with attribution. |
+| Inter typeface (`app/src/main/res/font/inter_variable.ttf`) | https://github.com/rsms/inter | SIL Open Font License 1.1; Copyright (c) 2016 The Inter Project Authors. Full text in INTER_LICENSE.txt. |
+| AndroidX / Jetpack Compose / Kotlin coroutines | https://developer.android.com/jetpack | Apache-2.0 |
 
-MIT License (Duo Fold Live)
-
-Copyright (c) 2026 Duo Fold Live contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+"iOS" and "Liquid Glass" are trademarks of Apple Inc. This project is not
+affiliated with or endorsed by Apple, and references their published design
+guidance only to describe the look it imitates.
