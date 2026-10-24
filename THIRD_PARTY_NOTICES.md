@@ -8,6 +8,7 @@ Duo Glass is MIT-licensed (see LICENSE). It builds on, and is grateful to:
 | Duo-animation — frosted-glass fold shader (Metal, ported to AGSL by Duo Open, extended here) | https://github.com/Atomicx7/Duo-animation | No license file upstream; used with attribution. |
 | Inter typeface (`app/src/main/res/font/inter_variable.ttf`) | https://github.com/rsms/inter | SIL Open Font License 1.1; Copyright (c) 2016 The Inter Project Authors. Full text in INTER_LICENSE.txt. |
 | AndroidX / Jetpack Compose / Kotlin coroutines | https://developer.android.com/jetpack | Apache-2.0 |
+| Shizuku API (`dev.rikka.shizuku:api`, `provider`) | https://github.com/RikkaApps/Shizuku-API | Apache-2.0 |
 
 "iOS" and "Liquid Glass" are trademarks of Apple Inc. This project is not
 affiliated with or endorsed by Apple, and references their published design

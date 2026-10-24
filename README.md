@@ -2,7 +2,8 @@
 
 A ground-up rebuild of [Duo Open](https://github.com/marcoazeem/duo-open): the
 iPhone "Duo" glass fold, playing system-wide on a book-style foldable as you
-open and close it, driven by the real hinge angle. No root.
+open and close it, driven by the real hinge angle. No root needed (the
+optional front-screen hold uses Shizuku or root).
 
 This fork is tuned for the **original Pixel Fold on Android 17** and wrapped in
 an app that follows **iOS 27's design language** — Liquid Glass controls,
@@ -34,6 +35,17 @@ large titles, inset grouped lists, a floating capsule tab bar, and iOS 27's
   nested strip windows, each adding only the blur the inner ones haven't, so the
   frost grows smoothly away from the crease and the other half stays sharp.
   Radius changes are SurfaceControl transactions, not WindowManager relayouts.
+  The windows are spaced so each raises the blur by the same ratio, the frost
+  levels off at ~56 px, and their number is sized to what SurfaceFlinger can
+  animate at 120 Hz (measured on a Pixel Fold: 0–2 dropped frames a fold on
+  either screen, where 12 windows dropped ~54 on the cover).
+- **Front screen stays on until the fold is half open** (Setup → Front screen
+  hold, optional, needs Shizuku or root). The Pixel Fold lights the inner
+  screen at ~5°; with the hold on, the cover stays lit (and frosts over) until
+  your chosen angle, 45–150°, by holding the system's device state at "closed"
+  and releasing it there. It also holds a phone that fell asleep shut, and
+  wakes it as you open. Closes aren't held, and the glass learns where they
+  swap separately.
 - **Instant start.** The live-glass windows are created once per display and
   kept hidden between folds (they survive the Pixel Fold's display-0 blink at
   the panel swap), so the glass appears in a few ms instead of ~0.4 s.
@@ -117,7 +129,9 @@ Release signing reads `keystore.properties` in the project root (`storeFile`,
 `storePassword`, `keyAlias`, `keyPassword`).
 
 Handy adb: `adb shell am broadcast -a com.duoglass.DEMO` replays the effect,
-`--el hold 3000` holds full frost first; `adb logcat -s GlassFold` shows every
+`--el hold 3000` holds full frost first, `--ef tilt 30` freezes it at that
+tilt for the hold (for tuning); `adb shell setprop log.tag.GlassHinge VERBOSE`
+logs every hinge reading; `adb logcat -s GlassFold` shows every
 engine event. On the emulator, `adb emu sensor set hinge-angle0 <deg>` drives
 the hinge (the `pixel_fold` AVD swaps panels like the real phone).
 
@@ -132,6 +146,7 @@ core/fold/SpringFollower.kt                 critically damped per-vsync spring
 core/settings/GlassSettings.kt              settings + learned values
 overlay/FoldService.kt                      accessibility service: one director per lit display
 overlay/PanelDirector.kt                    per-display state machine (track, ease, capture, demo)
+overlay/CoverHold.kt                        front-screen hold (device-state override via Shizuku/root)
 overlay/surface/LiveGlassSurface.kt         pre-warmed nested background-blur windows + sheen
 overlay/surface/SnapshotSurface.kt          screenshot through the shader at half resolution
 wallpaper/                                  live wallpaper engine and picture
@@ -140,8 +155,9 @@ ui/theme, ui/components                     iOS 27 tokens, type, controls, tab b
 ui/screens                                  Fold, Look, Setup, Lab
 ```
 
-Not carried over from upstream (yet): Shizuku mode (Samsung continuous angle,
-shell capture) and the separate "lite" flavor.
+Not carried over from upstream (yet): Shizuku capture modes (Samsung
+continuous angle, shell capture) and the separate "lite" flavor. Shizuku is used
+only for the front-screen hold.
 
 ## Credits
 

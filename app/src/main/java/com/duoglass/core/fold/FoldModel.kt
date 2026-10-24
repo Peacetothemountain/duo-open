@@ -23,30 +23,45 @@ object FoldModel {
 
     /**
      * Treated as fully open. Real hinges rest short of 180° (OnePlus Open
-     * 176–179°, Pixel Fold 178–180°), which would otherwise leave a permanent
-     * faint frost.
+     * 176–179°; the Pixel Fold's 5° sensor reads 170 or 175 lying open),
+     * which would otherwise leave a faint frost.
      */
-    const val FLAT_HINGE = 172f
+    const val FLAT_HINGE = 168f
 
     /** Used until this phone's swap angle has been observed. */
     const val DEFAULT_SWAP = 20f
 
-    fun swapAngle(config: GlassConfig): Float =
-        config.learnedSwapAngle.takeIf { it.isFinite() }?.coerceIn(4f, 70f) ?: DEFAULT_SWAP
+    /**
+     * Set while the cover hold is active: an open then swaps exactly where we
+     * release the hold, so there's nothing to learn or guess. Closes aren't
+     * held, so they keep swapping where the system does (learned).
+     */
+    @Volatile
+    var swapOverride: Float = Float.NaN
+
+    /** Where the screens swap, opening or closing (they differ while the cover hold is on). */
+    fun swapAngle(config: GlassConfig, opening: Boolean = true): Float {
+        val held = swapOverride.isFinite()
+        return swapOverride.takeIf { held && opening }?.coerceIn(4f, 150f)
+            ?: config.learnedCloseSwapAngle.takeIf { held && it.isFinite() }?.coerceIn(4f, 150f)
+            ?: config.learnedSwapAngle.takeIf { it.isFinite() }?.coerceIn(4f, 150f)
+            ?: DEFAULT_SWAP
+    }
 
     /** A shut phone idles a few degrees open; below this the cover is at rest. */
-    fun closedAngle(config: GlassConfig): Float = (swapAngle(config) * 0.3f).coerceIn(1.5f, 6f)
+    fun closedAngle(config: GlassConfig, opening: Boolean = true): Float =
+        (swapAngle(config, opening) * 0.3f).coerceIn(1.5f, 6f)
 
     /** 0 at flat → 1 at the swap. */
-    fun innerProgress(angle: Float, config: GlassConfig): Float {
-        val swap = swapAngle(config)
+    fun innerProgress(angle: Float, config: GlassConfig, opening: Boolean = true): Float {
+        val swap = swapAngle(config, opening)
         return ((FLAT_HINGE - angle) / (FLAT_HINGE - swap)).coerceIn(0f, 1f)
     }
 
     /** 0 at shut → 1 at the swap. */
-    fun coverProgress(angle: Float, config: GlassConfig): Float {
-        val closed = closedAngle(config)
-        val swap = swapAngle(config)
+    fun coverProgress(angle: Float, config: GlassConfig, opening: Boolean = true): Float {
+        val closed = closedAngle(config, opening)
+        val swap = swapAngle(config, opening)
         return ((angle - closed) / (swap - closed).coerceAtLeast(1f)).coerceIn(0f, 1f)
     }
 
@@ -71,11 +86,11 @@ object FoldModel {
         return (eased * full * config.intensity).coerceIn(0f, MAX_TILT)
     }
 
-    fun innerTilt(angle: Float, config: GlassConfig): Float =
-        if (angle.isNaN()) 0f else tilt(innerProgress(angle, config), config)
+    fun innerTilt(angle: Float, config: GlassConfig, opening: Boolean = true): Float =
+        if (angle.isNaN()) 0f else tilt(innerProgress(angle, config, opening), config)
 
-    fun coverTilt(angle: Float, config: GlassConfig): Float =
-        if (angle.isNaN()) 0f else tilt(coverProgress(angle, config), config, bothHalves = false)
+    fun coverTilt(angle: Float, config: GlassConfig, opening: Boolean = true): Float =
+        if (angle.isNaN()) 0f else tilt(coverProgress(angle, config, opening), config, bothHalves = false)
 
     fun concurrentCoverTilt(angle: Float, config: GlassConfig): Float =
         if (angle.isNaN()) 0f else tilt(concurrentCoverProgress(angle, config), config, bothHalves = false)

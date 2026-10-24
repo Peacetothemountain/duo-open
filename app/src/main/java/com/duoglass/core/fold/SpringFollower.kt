@@ -77,6 +77,13 @@ class SpringFollower(private val onFrame: (value: Float) -> Unit) : Choreographe
         /** Following the hinge: barely perceptible lag. */
         const val TRACK_RESPONSE = 0.12f
 
+        /**
+         * Tracking response for a sensor reporting [stepDegrees] per step: a
+         * little slower for coarse steps, so 5° jumps blend into one motion.
+         */
+        fun trackResponse(stepDegrees: Float): Float =
+            (TRACK_RESPONSE + 0.02f * (stepDegrees - 1f)).coerceIn(TRACK_RESPONSE, 0.24f)
+
         /** Timed eases (stalls, quiet hinge after a swap, stops-only sensors). */
         const val EASE_RESPONSE = 0.32f
     }

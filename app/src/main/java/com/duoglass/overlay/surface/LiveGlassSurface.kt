@@ -23,10 +23,8 @@ import com.duoglass.core.render.FoldShader
 import com.duoglass.core.settings.GlassConfig
 import kotlin.math.abs
 import kotlin.math.ceil
-import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * The windows behind live glass, created once per display and kept hidden
@@ -42,11 +40,18 @@ import kotlin.math.sqrt
  * needs a real Window, hence one bare Dialog-backed overlay window per strip.
  *
  * The strips are *nested*: strip i covers from its band's inner edge all the
- * way out to the screen edge and adds only the blur the strips inside it
- * haven't (blurs compose roughly in quadrature). The picture under each band
- * boundary is then continuous, so the bands don't show as hard seams, and no
- * single window needs a big radius (SurfaceFlinger drops per-window background
- * blur above ~80 px).
+ * way to the screen edge and adds only the blur the strips inside it haven't
+ * (stacked blurs compose roughly in quadrature). Two things measured on a
+ * Pixel Fold force this shape: SurfaceFlinger blurs each region from its own
+ * contents only (edges clamped), so side-by-side strips show as hard-edged
+ * tiles; and regions narrower than ~64 px get no blur at all. Nested windows
+ * are all wide and see continuous content under every band boundary.
+ *
+ * Each band boundary is still a step in blur, and a step shows in
+ * proportion to its size *relative* to the blur already there (sharp → 1 px
+ * shows; 40 → 45 px doesn't). So the bands are spaced geometrically: every
+ * boundary raises the blur by the same proportion, the least visible step
+ * the window budget allows.
  */
 class LiveGlassRig(private val context: Context, private val windowManager: WindowManager) {
 
@@ -67,7 +72,7 @@ class LiveGlassRig(private val context: Context, private val windowManager: Wind
     /** Creates the windows now (hidden), so the first fold doesn't pay for it. */
     fun warm() {
         if (broken) return
-        while (strips.size < STRIPS) {
+        while (strips.size < MAX_STRIPS) {
             val d = blurWindow() ?: run { broken = true; return }
             strips += Strip(d)
         }
@@ -92,18 +97,35 @@ class LiveGlassRig(private val context: Context, private val windowManager: Wind
             if (fold.movingSide <= 0 && fold.position > 1f) add(fold.position to 0f)
             if (fold.movingSide >= 0 && len - fold.position > 1f) add(fold.position to len)
         }
-        val n = if (panes.size == 2) STRIPS / 2 else STRIPS
+        val cross = if (fold.splitsX) h else w
+        val paneArea = panes.maxOf { (crease, far) -> abs(far - crease) } * cross
+        val total = minOf(stripCount(paneArea * panes.size), strips.size)
+        val n = if (panes.size == 2) total / 2 else total
+        // Past dCap the frost stops growing (see CAP_PX), so the bands only
+        // need to span the crease → dCap, and every step is smaller.
+        val sinPeak = sin(Math.toRadians(FoldModel.peakTilt(config).toDouble())).toFloat()
+        val dCap = if (config.frost * sinPeak > 0f) CAP_PX / (config.frost * sinPeak) else Float.MAX_VALUE
         var k = 0
         for ((crease, far) in panes) {
             var prev = -1f
+            val span = abs(far - crease)
+            val reach = minOf(span, dCap)
+            // A crease on the screen's edge (the cover's spine) can start the
+            // frost well above zero: there's no sharp side for the step to show
+            // against, and the windows left over make every later step smaller.
+            val atEdge = crease < 1f || crease > len - 1f
+            val first = if (atEdge) EDGE_CREASE_LEVEL else CREASE_LEVEL
+            val q = stepRatio(n, first)
             for (i in 0 until n) {
-                val f0 = band(i, n)
-                val f1 = band(i + 1, n)
-                val start = crease + (far - crease) * f0
+                // Window i blurs like the true frost at level(i)·reach, and starts
+                // where the frost passes the midpoint between its level and the
+                // one before; window 0 starts at the crease itself.
+                val level = level(i, n, q)
+                val start = if (i == 0) crease else crease + (far - crease) * (level / kotlin.math.sqrt(q) * reach / span)
                 val lo = minOf(start, far)
                 val hi = maxOf(start, far)
                 val s = strips[k++]
-                s.dMid = abs(far - crease) * (f0 + f1) * 0.5f
+                s.dMid = reach * level
                 s.dPrev = prev
                 s.radius = -1
                 s.used = true
@@ -112,8 +134,8 @@ class LiveGlassRig(private val context: Context, private val windowManager: Wind
                     s.dialog,
                     x = if (fold.splitsX) lo.toInt() else 0,
                     y = if (fold.splitsX) 0 else lo.toInt(),
-                    width = if (fold.splitsX) ceil(hi - lo).toInt() else w.toInt(),
-                    height = if (fold.splitsX) h.toInt() else ceil(hi - lo).toInt(),
+                    width = if (fold.splitsX) ceil(hi - lo).toInt().coerceAtLeast(1) else w.toInt(),
+                    height = if (fold.splitsX) h.toInt() else ceil(hi - lo).toInt().coerceAtLeast(1),
                 )
             }
         }
@@ -148,6 +170,21 @@ class LiveGlassRig(private val context: Context, private val windowManager: Wind
         strips.clear()
         sheen?.let { v -> runCatching { windowManager.removeViewImmediate(v) } }
         sheen = null
+    }
+
+    /**
+     * Every blurring window costs SurfaceFlinger a blur pass over its area on
+     * each frame the radius changes, so the count follows the blurred area
+     * ([paneArea], one moving pane). Measured on a Pixel Fold at 120 Hz while
+     * the frost animates: 8 windows over the inner panel's half (2.0 MP) and 6
+     * over the whole cover (2.3 MP) drop 0–2 frames a fold; the cover drops
+     * ~5 with 8 and ~54 with 12. `adb shell settings put global
+     * duoglass_strips N` overrides it for tuning.
+     */
+    private fun stripCount(paneArea: Float): Int {
+        val forced = android.provider.Settings.Global.getInt(context.contentResolver, "duoglass_strips", 0)
+        if (forced > 0) return forced.coerceIn(4, MAX_STRIPS)
+        return (BLUR_AREA_BUDGET / paneArea).toInt().coerceIn(4, MAX_STRIPS)
     }
 
     private fun place(d: Dialog, x: Int, y: Int, width: Int, height: Int) {
@@ -251,10 +288,20 @@ class LiveGlassRig(private val context: Context, private val windowManager: Wind
                 rim.shader = gradient(fold, rimStart, edge, Color.TRANSPARENT, Color.argb(alpha(light * 0.5f), 255, 255, 255))
                 rect(canvas, fold, rimStart, edge, rim)
 
-                val creaseW = 8f * pxPerMm
-                val creaseEnd = fold.position + side * creaseW
-                crease.shader = gradient(fold, fold.position, creaseEnd, Color.argb(alpha(light * 0.3f), 255, 255, 255), Color.TRANSPARENT)
-                rect(canvas, fold, fold.position, creaseEnd, crease)
+            }
+            // A soft glow along the hinge, centred on it and fading out both
+            // ways: one-sided, it ended in a hard bright step at the crease.
+            val light = config.sheen * tiltN
+            val creaseW = 6f * pxPerMm
+            val peak = alpha(light * CREASE_LIGHT)
+            if (peak > 0) {
+                val stops = intArrayOf(0, 38, 100, 38, 0).map { Color.argb(peak * it / 100, 255, 255, 255) }.toIntArray()
+                val at = floatArrayOf(0f, 0.25f, 0.5f, 0.75f, 1f)
+                val a = fold.position - creaseW
+                val b = fold.position + creaseW
+                crease.shader = if (fold.splitsX) LinearGradient(a, 0f, b, 0f, stops, at, Shader.TileMode.CLAMP)
+                else LinearGradient(0f, a, 0f, b, stops, at, Shader.TileMode.CLAMP)
+                rect(canvas, fold, a, b, crease)
             }
         }
 
@@ -274,20 +321,42 @@ class LiveGlassRig(private val context: Context, private val windowManager: Wind
 
     companion object {
         private const val TAG = "GlassOverlay"
-        /** Strips across one moving pane (half each when both halves move). */
-        const val STRIPS = 10
-        /** Largest radius any single window asks for; see the class comment. */
-        const val MAX_STEP_PX = 64f
+        /** Windows made per display; how many a fold uses depends on the panel ([stripCount]). */
+        const val MAX_STRIPS = 12
+        /** Sum of blurring-window areas SurfaceFlinger animates at 120 Hz without dropping frames (Pixel Fold). */
+        private const val BLUR_AREA_BUDGET = 16.5e6f
+        /** Largest radius any one window adds; nesting keeps increments small. */
+        const val MAX_RADIUS_PX = 64f
         const val MAX_DARK = 0.85f
+        /** Peak opacity of the hinge glow at full sheen and full tilt. */
+        const val CREASE_LIGHT = 0.10f
 
         /**
-         * Band edges as a fraction of the pane, 0 at the crease. Denser near the
-         * crease: a step from sharp to 6 px shows, one from 50 to 60 px doesn't.
+         * The frost starts at the crease already this fraction of [CAP_PX]
+         * (~7 px at full tilt): a small step on the hinge line, where an edge
+         * reads as the pane's, buys smaller steps everywhere after it.
          */
-        fun band(i: Int, n: Int): Float {
-            val u = i.toFloat() / n
-            return u * (0.55f + 0.45f * u)
-        }
+        private const val CREASE_LEVEL = 0.12f
+        /** The same when the crease is the screen's edge, where the step can't be seen. */
+        private const val EDGE_CREASE_LEVEL = 0.3f
+        /**
+         * Frost stops growing at this radius (at full tilt; it scales with
+         * tilt). Past ~50 px a homescreen is already a wash, and the smaller
+         * range is what lets 8 windows step evenly on the inner panel.
+         */
+        private const val CAP_PX = 56f
+
+        /**
+         * How much each window raises the frost over the last: [first] → 1 in
+         * n − 1 equal ratios (inner panel, 8 windows: 1.35; cover, 6 from the
+         * edge level: 1.27).
+         */
+        fun stepRatio(n: Int, first: Float = CREASE_LEVEL): Float =
+            if (n <= 1) 1f else Math.pow(1.0 / first, 1.0 / (n - 1)).toFloat()
+
+        /** Window i's frost as a fraction of the cap: geometric up to 1 for the last. */
+        fun level(i: Int, n: Int, q: Float = stepRatio(n)): Float =
+            Math.pow(q.toDouble(), (i - (n - 1)).toDouble()).toFloat()
     }
 }
 
@@ -316,7 +385,8 @@ class LiveGlassSurface internal constructor(
             if (!strip.used) continue
             val target = config.frost * strip.dMid * s
             val inner = if (strip.dPrev < 0f) 0f else config.frost * strip.dPrev * s
-            val r = sqrt(max(target * target - inner * inner, 0f)).coerceIn(0f, LiveGlassRig.MAX_STEP_PX)
+            val r = kotlin.math.sqrt(kotlin.math.max(target * target - inner * inner, 0f))
+                .coerceIn(0f, LiveGlassRig.MAX_RADIUS_PX)
             val q = r.roundToInt()
             if (q != strip.radius) {
                 strip.radius = q
