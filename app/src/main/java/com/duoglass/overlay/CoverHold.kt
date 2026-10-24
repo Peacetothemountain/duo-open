@@ -66,8 +66,11 @@ object CoverHold {
     @Volatile
     private var holding = true
     private var startupReset = false
-    /** Set once we've woken the front screen for this open, so a slow open doesn't keep pressing wake. */
-    private var wokeThisOpen = false
+    /**
+     * Armed when the phone is shut, spent by the wake: so only an open from
+     * shut wakes, once — not a close passing through the same angles.
+     */
+    private var wakeArmed = false
 
     private var appContext: android.content.Context? = null
     private var listening = false
@@ -158,7 +161,7 @@ object CoverHold {
         val c = GlassSettings.value
         val enabled = c.coverHold && ready()
         FoldModel.swapOverride = if (enabled) c.coverHoldAngle else Float.NaN
-        if (angle <= SHUT_DEG) wokeThisOpen = false
+        if (angle <= SHUT_DEG) wakeArmed = true
         when {
             holding && (!enabled || angle >= c.coverHoldAngle) -> release("hinge ${angle.toInt()}°")
             // Re-arm whenever the front screen is the one lit, comfortably below
@@ -171,8 +174,8 @@ object CoverHold {
             // nothing: from sleep the screens stay dark until the release, and a
             // charging phone's screensaver carries on onto the inner panel.
             // Wake it here instead, once per open (a no-op if already awake).
-            holding && enabled && !wokeThisOpen && angle >= WAKE_DEG -> {
-                wokeThisOpen = true
+            holding && enabled && wakeArmed && angle >= WAKE_DEG -> {
+                wakeArmed = false
                 waker.post {
                     if (exec("input", "keyevent", "KEYCODE_WAKEUP")) {
                         post { FoldTrace.event("cover hold: wake at ${angle.toInt()}°") }
