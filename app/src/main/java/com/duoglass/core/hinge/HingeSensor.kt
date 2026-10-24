@@ -142,6 +142,8 @@ object HingeSensor {
             val v = event.values.firstOrNull() ?: return
             val c = candidates.firstOrNull { it.sensor == event.sensor } ?: return
             if (!v.isFinite() || v < -5f || v > 185f) return // not degrees
+            // `adb shell setprop log.tag.GlassHinge VERBOSE` logs every reading.
+            if (Log.isLoggable(TAG, Log.VERBOSE)) Log.v(TAG, "${event.sensor.name}: $v")
             c.observe(v)
             if (choose() !== c) return
             deliver(v.coerceIn(0f, 180f), SystemClock.uptimeMillis())

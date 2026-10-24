@@ -54,10 +54,12 @@ class FoldService : AccessibilityService(), HingeSensor.Listener {
 
     /**
      * `adb shell am broadcast -a com.duoglass.DEMO` plays the glass over whatever
-     * is on screen; `--el hold 3000` holds full frost that long first (for testing).
+     * is on screen; `--el hold 3000` holds full frost that long first, and
+     * `--ef tilt 30` freezes the glass at that tilt for the hold (for tuning).
      */
     private val demoReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) = playDemo(intent.getLongExtra("hold", 0L))
+        override fun onReceive(context: Context, intent: Intent) =
+            playDemo(intent.getLongExtra("hold", 0L), intent.getFloatExtra("tilt", Float.NaN))
     }
 
     override fun onServiceConnected() {
@@ -71,12 +73,14 @@ class FoldService : AccessibilityService(), HingeSensor.Listener {
         HingeSensor.init(this)
         HingeSensor.addListener(this)
         watchFoldFeature()
+        CoverHold.init(this)
         sync()
         OverlayState.attach(this)
         FoldTrace.event("service connected; hinge=${HingeSensor.activeSensor?.name ?: "none"}; displays=${directors.keys}")
     }
 
     override fun onDestroy() {
+        CoverHold.releaseNow("service stopped")
         OverlayState.detach(this)
         HingeSensor.removeListener(this)
         if (receiverRegistered) unregisterReceiver(demoReceiver)
@@ -94,6 +98,8 @@ class FoldService : AccessibilityService(), HingeSensor.Listener {
     override fun onInterrupt() = Unit
 
     override fun onHinge(angle: Float) {
+        val main0 = directors[Display.DEFAULT_DISPLAY]
+        CoverHold.onHinge(angle, coverLit = main0 != null && !main0.inner)
         sync()
         for (d in directors.values.toList()) d.onHinge(angle)
         val main = directors[Display.DEFAULT_DISPLAY] ?: directors.values.firstOrNull()
@@ -157,9 +163,9 @@ class FoldService : AccessibilityService(), HingeSensor.Listener {
     private fun updateRunning() = OverlayState.setRunning(directors.values.any { it.showing })
 
     /** Plays the glass on the display you're looking at. */
-    fun playDemo(holdMs: Long = 0L) {
+    fun playDemo(holdMs: Long = 0L, tilt: Float = Float.NaN) {
         sync()
-        (directors[Display.DEFAULT_DISPLAY] ?: directors.values.firstOrNull())?.playDemo(holdMs)
+        (directors[Display.DEFAULT_DISPLAY] ?: directors.values.firstOrNull())?.playDemo(holdMs, tilt)
     }
 
     companion object {
