@@ -48,9 +48,11 @@ object HingeSensor {
             if (distinct.size < 8) distinct += v.roundToInt()
         }
 
+        // Only stops seen, and at least two different ones: a phone lying shut
+        // that has reported nothing but 0° says nothing about its resolution.
         val looksCoarse: Boolean
             get() = resolution >= 45f ||
-                (events >= 6 && distinct.size <= 3 && distinct.all { d -> STOPS.any { abs(d - it) <= 2 } })
+                (events >= 6 && distinct.size in 2..3 && distinct.all { d -> STOPS.any { abs(d - it) <= 2 } })
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -81,6 +83,14 @@ object HingeSensor {
     val available: Boolean get() = candidates.isNotEmpty()
     val activeSensor: Sensor? get() = active?.sensor ?: candidates.firstOrNull()?.sensor
     val isCoarse: Boolean get() = (active ?: candidates.firstOrNull())?.looksCoarse == true
+
+    /**
+     * Degrees per reported step (1° on most foldables, 5° on the Pixel Fold's
+     * wake-up hinge sensor). Coarse steps arrive further apart during a slow
+     * fold — up to ~0.8 s between 5° steps on a Pixel Fold — which the engine
+     * must not mistake for the hinge stopping.
+     */
+    val stepDegrees: Float get() = (active ?: candidates.firstOrNull())?.resolution?.coerceIn(0.1f, 90f) ?: 1f
 
     fun init(context: Context) {
         if (sensorManager != null) return
@@ -132,6 +142,8 @@ object HingeSensor {
             val v = event.values.firstOrNull() ?: return
             val c = candidates.firstOrNull { it.sensor == event.sensor } ?: return
             if (!v.isFinite() || v < -5f || v > 185f) return // not degrees
+            // `adb shell setprop log.tag.GlassHinge VERBOSE` logs every reading.
+            if (Log.isLoggable(TAG, Log.VERBOSE)) Log.v(TAG, "${event.sensor.name}: $v")
             c.observe(v)
             if (choose() !== c) return
             deliver(v.coerceIn(0f, 180f), SystemClock.uptimeMillis())

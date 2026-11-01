@@ -139,7 +139,7 @@ fun LabScreen(scroll: ScrollState, model: AppModel, config: GlassConfig) {
                     model.banner = "Report copied"
                 })
                 ListRow("Forget learned values", icon = Symbols.Reset, iconColor = c.red, titleColor = c.red, divider = false, onClick = {
-                    GlassSettings.update { it.copy(learnedSwapAngle = Float.NaN, swapSamples = 0, learnedFoldVertical = true, learnedFoldCenter = 0.5f) }
+                    GlassSettings.update { it.copy(learnedSwapAngle = Float.NaN, swapSamples = 0, learnedCloseSwapAngle = Float.NaN, closeSwapSamples = 0, learnedFoldVertical = true, learnedFoldCenter = 0.5f) }
                     model.banner = "Learned values cleared"
                 })
             }

@@ -76,5 +76,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.window:window:1.5.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    // Optional: shell-level access for the cover-screen hold (root via su also works).
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     testImplementation("junit:junit:4.13.2")
 }

@@ -11,5 +11,6 @@ class DuoGlassApp : Application() {
         // the settings flow and one hinge registration.
         GlassSettings.init(this)
         HingeSensor.init(this)
+        com.duoglass.overlay.CoverHold.init(this)
     }
 }

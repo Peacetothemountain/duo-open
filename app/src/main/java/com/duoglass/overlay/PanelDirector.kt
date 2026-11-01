@@ -99,7 +99,7 @@ class PanelDirector(
         override fun run() {
             if (phase != Phase.SHOWING || drive != Drive.TRACK || demo) return
             val quiet = SystemClock.uptimeMillis() - lastMoveMs
-            val limit = if (!inner && afterSwapPhase && !concurrentCover()) QUIET_AFTER_CLOSE_MS else STALL_MS
+            val limit = if (!inner && afterSwapPhase && !concurrentCover()) quietAfterCloseMs() else stallMs()
             if (quiet >= limit) {
                 stallAngle = HingeSensor.angle
                 FoldTrace.event("d$id: hinge quiet ${quiet}ms → ease out")
@@ -120,18 +120,35 @@ class PanelDirector(
         if (useLive()) handler.post { if (!destroyed) rig(uiContext, windowManager).warm() }
         // On the Pixel Fold display 0 blinks off during the swap, so the
         // director is rebuilt rather than seeing its mode flip: this is the swap.
-        if (swapPending && HingeSensor.ageMs() < 1_000) GlassSettings.learnSwap(HingeSensor.angle)
+        if (swapPending && HingeSensor.ageMs() < 1_000) learnSwap(HingeSensor.angle, inner)
         FoldTrace.event("d$id: engine up, ${if (inner) "inner" else "cover"}${if (swapPending) ", mid-fold" else ""}")
     }
 
     private fun concurrentCover(): Boolean = !inner && innerLitElsewhere()
 
+    /**
+     * Which way the fold in progress is going: the inner panel is opening if
+     * its phase began at the swap, the cover if its phase began at rest.
+     */
+    private fun opening(): Boolean = if (inner) afterSwapPhase else !afterSwapPhase
+
+    /**
+     * Learns from a swap onto [toInner]. With the cover hold on, an open's swap
+     * is the hold's release (nothing to learn) and a close's is the system's
+     * own, kept apart from the opens learned before the hold.
+     */
+    private fun learnSwap(angle: Float, toInner: Boolean) = when {
+        !FoldModel.swapOverride.isFinite() -> GlassSettings.learnSwap(angle)
+        !toInner -> GlassSettings.learnCloseSwap(angle)
+        else -> Unit
+    }
+
     private fun tiltFor(angle: Float): Float {
         val c = GlassSettings.value
         return when {
-            inner -> FoldModel.innerTilt(angle, c)
+            inner -> FoldModel.innerTilt(angle, c, opening())
             concurrentCover() -> FoldModel.concurrentCoverTilt(angle, c)
-            else -> FoldModel.coverTilt(angle, c)
+            else -> FoldModel.coverTilt(angle, c, opening())
         }
     }
 
@@ -160,7 +177,7 @@ class PanelDirector(
         if (nowInner != inner) {
             val a = HingeSensor.angle
             FoldTrace.event("d$id: swap → ${if (nowInner) "inner" else "cover"} at ${fmt(a)}°")
-            if (a.isFinite()) GlassSettings.learnSwap(a)
+            if (a.isFinite()) learnSwap(a, nowInner)
             inner = nowInner
             swapPending = true
             stallAngle = Float.NaN
@@ -173,6 +190,7 @@ class PanelDirector(
             armed = true
             swapPending = false
             stallAngle = Float.NaN
+            afterSwapPhase = false // at rest: the next fold leaves rest
             return
         }
         if (phase != Phase.IDLE) return
@@ -186,7 +204,8 @@ class PanelDirector(
                 armed = false
                 start(afterSwap = false)
             }
-            stallAngle.isFinite() && abs(angle - stallAngle) >= RESUME_DEG -> {
+            stallAngle.isFinite() && tilt >= REST_LEAVE_TILT &&
+                abs(angle - stallAngle) >= maxOf(RESUME_DEG, 2f * HingeSensor.stepDegrees) -> {
                 stallAngle = Float.NaN
                 start(afterSwap = false)
             }
@@ -330,7 +349,11 @@ class PanelDirector(
             demo = false
             return
         }
-        s.tilt = startTilt
+        // Leaving rest, start from clear and let the spring catch up: the
+        // Pixel Fold's hinge can jump 5° → 45° in one reading, which would
+        // otherwise pop the glass in at half frost.
+        val from = if (!fadeIn && !demo && easeTo == null) 0f else startTilt
+        s.tilt = from
         surface = s
         phase = Phase.SHOWING
         onShowingChanged()
@@ -340,7 +363,7 @@ class PanelDirector(
             val target = follower?.target ?: 0f
             if (t < FoldModel.FLAT_EPSILON && target < FoldModel.FLAT_EPSILON && !demo) dismiss(FADE_FLAT_MS)
         }
-        f.snap(startTilt)
+        f.snap(from)
         follower = f
         lastMoveMs = SystemClock.uptimeMillis()
         val how = if (bitmap != null) "snapshot ${bitmap.width}×${bitmap.height}" else "live glass"
@@ -355,7 +378,8 @@ class PanelDirector(
             }
             else -> {
                 drive = Drive.TRACK
-                f.response = SpringFollower.TRACK_RESPONSE
+                f.response = SpringFollower.trackResponse(HingeSensor.stepDegrees)
+                if (from != startTilt) f.setTarget(startTilt)
                 handler.postDelayed(watchdog, WATCHDOG_MS)
             }
         }
@@ -407,15 +431,32 @@ class PanelDirector(
      */
     private var demoHoldMs = 0L
 
-    fun playDemo(holdMs: Long = 0L) {
+    private var demoFixedTilt = Float.NaN
+
+    /**
+     * @param holdMs Hold full frost this long before playing out (testing).
+     * @param fixedTilt If set, freeze the glass at this tilt for [holdMs], then fade:
+     *   for tuning the look on a real panel without holding the phone half-folded.
+     */
+    fun playDemo(holdMs: Long = 0L, fixedTilt: Float = Float.NaN) {
         if (phase != Phase.IDLE || demo) return
         demo = true
-        demoHoldMs = holdMs.coerceIn(0L, 10_000L)
+        demoHoldMs = holdMs.coerceIn(0L, 20_000L)
+        demoFixedTilt = fixedTilt
         val peak = FoldModel.peakTilt(GlassSettings.value)
-        start(afterSwap = false, startTilt = if (inner) peak else 0.06f)
+        val start = when {
+            fixedTilt.isFinite() -> fixedTilt.coerceIn(0.06f, FoldModel.MAX_TILT)
+            inner -> peak
+            else -> 0.06f
+        }
+        start(afterSwap = false, startTilt = start)
     }
 
     private fun runDemoScript(f: SpringFollower) {
+        if (demoFixedTilt.isFinite()) {
+            handler.postDelayed({ endDemo() }, demoHoldMs.coerceAtLeast(500L))
+            return
+        }
         val peak = FoldModel.peakTilt(GlassSettings.value)
         f.response = DEMO_RESPONSE
         val begin = (if (inner) 380L else 120L) + demoHoldMs
@@ -454,6 +495,22 @@ class PanelDirector(
             sw.recycle()
         }
     }
+
+    /**
+     * How long the hinge may stay silent mid-fold before the glass eases out.
+     * Scales with the sensor's step: a 5° sensor (Pixel Fold) can go ~0.8 s
+     * between readings during a slow open.
+     */
+    private fun stallMs(): Long =
+        (STALL_MS + (HingeSensor.stepDegrees - 1f).coerceAtLeast(0f) * 190f).toLong().coerceAtMost(1_600L)
+
+    /**
+     * How long a cover that lit during a close waits for the hinge. Short, for
+     * HALs that stop reporting there, but scaled like [stallMs]: the Pixel
+     * Fold's 5° sensor reports a slow close only every 300–500 ms.
+     */
+    private fun quietAfterCloseMs(): Long =
+        (QUIET_AFTER_CLOSE_MS * HingeSensor.stepDegrees.coerceAtLeast(1f)).toLong().coerceAtMost(stallMs())
 
     private fun fmt(v: Float) = if (v.isFinite()) "%.1f".format(v) else "?"
 

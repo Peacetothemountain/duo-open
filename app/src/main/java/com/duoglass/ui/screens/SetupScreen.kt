@@ -30,6 +30,13 @@ import com.duoglass.core.settings.AxisMode
 import com.duoglass.core.settings.Engine
 import com.duoglass.core.settings.GlassConfig
 import com.duoglass.core.settings.GlassSettings
+import com.duoglass.overlay.CoverHold
+import com.duoglass.ui.components.GlassSwitch
+import com.duoglass.ui.components.SliderRow
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.duoglass.ui.AppModel
 import com.duoglass.ui.components.ListRow
 import com.duoglass.ui.components.Section
@@ -86,6 +93,7 @@ fun SetupScreen(scroll: ScrollState, model: AppModel, config: GlassConfig) {
                     }
                 }
             }
+            CoverHoldSection(config)
             Section(header = "Wallpaper only", footer = "No accessibility needed: the home and lock screen wallpaper folds; icons stay sharp.") {
                 ListRow(
                     if (model.wallpaperActive) "Live wallpaper is set" else "Set live wallpaper",
@@ -174,5 +182,60 @@ private fun StatusDot(on: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         if (on) Symbol(Symbols.Check, Color.White, size = 14.dp)
+    }
+}
+
+/**
+ * Keep the front screen on until the phone is part-way open (the Pixel Fold
+ * otherwise switches to the inner screen at ~5–10°). Needs shell or root.
+ */
+@Composable
+private fun CoverHoldSection(config: GlassConfig) {
+    val c = Glass.colors
+    val status by CoverHold.status.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val ready = status !is CoverHold.Status.NoShizuku && status !is CoverHold.Status.NotRunning &&
+        status !is CoverHold.Status.NeedsPermission
+    Section(
+        header = "Front screen",
+        footer = "The Pixel Fold switches to the inner screen as soon as it leaves shut. With this on, the front screen stays lit until the hinge passes the angle below, and the front-screen glass plays over that whole first stretch. Uses Shizuku or root to hold the phone's \"closed\" state while it's shut; it's released the moment you pass the angle, if you turn this off, or if the service stops (a reboot clears it too).",
+    ) {
+        ListRow(
+            "Keep front screen on",
+            icon = Symbols.Rotate,
+            iconColor = c.indigo,
+            subtitle = if (ready) status.summary.takeIf { config.coverHold } ?: "Until the hinge is ${config.coverHoldAngle.roundToInt()}° open" else status.summary,
+        ) {
+            GlassSwitch(
+                config.coverHold && ready,
+                { on ->
+                    GlassSettings.update { it.copy(coverHold = on) }
+                    scope.launch(Dispatchers.IO) {
+                        if (!on) CoverHold.releaseNow("turned off")
+                        CoverHold.refresh()
+                    }
+                },
+                enabled = ready,
+            )
+        }
+        if (config.coverHold && ready) {
+            SliderRow(
+                "Switch to the inner screen at",
+                config.coverHoldAngle,
+                { v -> GlassSettings.update { it.copy(coverHoldAngle = (v / 5f).roundToInt() * 5f) }; CoverHold.refresh() },
+                45f..150f,
+                "${config.coverHoldAngle.roundToInt()}°",
+                marker = 90f,
+                divider = false,
+            )
+        }
+        if (!ready) {
+            if (status is CoverHold.Status.NeedsPermission) {
+                ListRow("Allow in Shizuku", titleColor = c.blue, chevron = true, onClick = { CoverHold.requestPermission() })
+            }
+            ListRow("Use root instead", titleColor = c.blue, chevron = true, divider = false, onClick = {
+                scope.launch(Dispatchers.IO) { CoverHold.tryRoot() }
+            })
+        }
     }
 }

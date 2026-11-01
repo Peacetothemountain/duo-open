@@ -54,7 +54,12 @@ enum class Preset(
  * @param learnedFoldVertical From Jetpack WindowManager: fold is vertical at rotation 0.
  * @param learnedFoldCenter Fold position along its axis as a 0..1 fraction (rotation 0).
  * @param learnedSwapAngle Hinge angle at which this phone swaps panels (learned per open).
+ * @param learnedCloseSwapAngle Where a close swaps back to the cover, learned while [coverHold] is on
+ *   (opens then swap at [coverHoldAngle], so only closes show the system's own angle).
  * @param haptics Light ticks on controls and at the panel swap preview.
+ * @param coverHold Keep the cover screen lit until [coverHoldAngle] (shell/root device-state hold).
+ * @param coverHoldAngle Hinge angle at which the inner screen takes over while [coverHold] is on.
+ * @param holdViaRoot Run the hold through `su` rather than Shizuku.
  * @param glassTint App appearance, like iOS 27's Liquid Glass slider: 0 = Ultra Clear,
  *   1 = Fully Tinted, 0.5 = Apple's default midpoint.
  * @param imageVersion Bumped whenever the wallpaper image changes.
@@ -76,8 +81,13 @@ data class GlassConfig(
     val learnedFoldCenter: Float = 0.5f,
     val learnedSwapAngle: Float = Float.NaN,
     val swapSamples: Int = 0,
+    val learnedCloseSwapAngle: Float = Float.NaN,
+    val closeSwapSamples: Int = 0,
     val haptics: Boolean = true,
     val glassTint: Float = 0.5f,
+    val coverHold: Boolean = false,
+    val coverHoldAngle: Float = 90f,
+    val holdViaRoot: Boolean = false,
     val onboarded: Boolean = false,
     val imageVersion: Long = 0L,
 ) {
@@ -128,8 +138,13 @@ object GlassSettings {
             learnedFoldCenter = p.getFloat("learnedFoldCenter", d.learnedFoldCenter),
             learnedSwapAngle = p.getFloat("learnedSwapAngle", d.learnedSwapAngle),
             swapSamples = p.getInt("swapSamples", d.swapSamples),
+            learnedCloseSwapAngle = p.getFloat("learnedCloseSwapAngle", d.learnedCloseSwapAngle),
+            closeSwapSamples = p.getInt("closeSwapSamples", d.closeSwapSamples),
             haptics = p.getBoolean("haptics", d.haptics),
             glassTint = p.getFloat("glassTint", d.glassTint),
+            coverHold = p.getBoolean("coverHold", d.coverHold),
+            coverHoldAngle = p.getFloat("coverHoldAngle", d.coverHoldAngle),
+            holdViaRoot = p.getBoolean("holdViaRoot", d.holdViaRoot),
             onboarded = p.getBoolean("onboarded", d.onboarded),
             imageVersion = p.getLong("imageVersion", d.imageVersion),
         )
@@ -156,8 +171,13 @@ object GlassSettings {
             putFloat("learnedFoldCenter", next.learnedFoldCenter)
             putFloat("learnedSwapAngle", next.learnedSwapAngle)
             putInt("swapSamples", next.swapSamples)
+            putFloat("learnedCloseSwapAngle", next.learnedCloseSwapAngle)
+            putInt("closeSwapSamples", next.closeSwapSamples)
             putBoolean("haptics", next.haptics)
             putFloat("glassTint", next.glassTint)
+            putBoolean("coverHold", next.coverHold)
+            putFloat("coverHoldAngle", next.coverHoldAngle)
+            putBoolean("holdViaRoot", next.holdViaRoot)
             putBoolean("onboarded", next.onboarded)
             putLong("imageVersion", next.imageVersion)
         }
@@ -172,14 +192,26 @@ object GlassSettings {
      * (a flick, a pause right at the swap) can't throw it off.
      */
     fun learnSwap(angle: Float) {
-        if (!angle.isFinite() || angle !in 2f..80f) return
+        if (!angle.isFinite() || angle !in 2f..160f) return
         update {
-            val n = it.swapSamples
-            val prev = it.learnedSwapAngle
-            val alpha = if (n == 0 || !prev.isFinite()) 1f else maxOf(0.2f, 1f / (n + 1))
-            val next = if (alpha >= 1f) angle else prev + (angle - prev) * alpha
-            it.copy(learnedSwapAngle = next, swapSamples = (n + 1).coerceAtMost(1000))
+            val next = blend(it.learnedSwapAngle, it.swapSamples, angle)
+            it.copy(learnedSwapAngle = next, swapSamples = (it.swapSamples + 1).coerceAtMost(1000))
         }
+    }
+
+    /** A close's swap while the cover hold is on (see [GlassConfig.learnedCloseSwapAngle]). */
+    fun learnCloseSwap(angle: Float) {
+        if (!angle.isFinite() || angle !in 2f..160f) return
+        update {
+            val next = blend(it.learnedCloseSwapAngle, it.closeSwapSamples, angle)
+            it.copy(learnedCloseSwapAngle = next, closeSwapSamples = (it.closeSwapSamples + 1).coerceAtMost(1000))
+        }
+    }
+
+    /** Running mean that never stops adapting (at least 20% of each new sample). */
+    private fun blend(prev: Float, n: Int, sample: Float): Float {
+        val alpha = if (n == 0 || !prev.isFinite()) 1f else maxOf(0.2f, 1f / (n + 1))
+        return if (alpha >= 1f) sample else prev + (sample - prev) * alpha
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
